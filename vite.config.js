@@ -3,6 +3,6 @@ import react from "@vitejs/plugin-react";
 
 // https://vite.dev/config/
 export default defineConfig({
-  base: "https://adjash.github.io/",
+  base: "https://adjash.github.io/beat-app",
   plugins: [react()],
 });
