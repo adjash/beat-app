@@ -92,20 +92,50 @@ const EFFECT_CREATORS = {
   Tremolo: (params) => new Tone.Tremolo(params.frequency, params.depth).start(),
 };
 
+// Available musical scales and their intervals (in semitones)
+const SCALES = {
+  Major: [2, 2, 1, 2, 2, 2, 1],
+  "Natural Minor": [2, 1, 2, 2, 1, 2, 2],
+  "Harmonic Minor": [2, 1, 2, 2, 1, 3, 1],
+  "Melodic Minor": [2, 1, 2, 2, 2, 2, 1],
+  Dorian: [2, 1, 2, 2, 2, 1, 2],
+  Phrygian: [1, 2, 2, 2, 1, 2, 2],
+  Lydian: [2, 2, 2, 1, 2, 2, 1],
+  Mixolydian: [2, 2, 1, 2, 2, 1, 2],
+  Locrian: [1, 2, 2, 1, 2, 2, 2],
+  "Major Pentatonic": [2, 2, 3, 2, 3],
+  "Minor Pentatonic": [3, 2, 2, 3, 2],
+};
+const SCALE_NAMES = Object.keys(SCALES);
+
+// Helper to get scale notes for a root and scale name
+const getScaleNotes = (root, scaleName) => {
+  const intervals = SCALES[scaleName];
+  const rootIdx = NOTE_OPTIONS.indexOf(root);
+  let scale = [root];
+  let idx = rootIdx;
+  for (let i = 0; i < intervals.length; i++) {
+    idx = (idx + intervals[i]) % 12;
+    scale.push(NOTE_OPTIONS[idx]);
+  }
+  return scale;
+};
+
 function Daw() {
   const [rootNote, setRootNote] = useState("C");
   const [octave, setOctave] = useState(4);
-  const [tempo, setTempo] = useState(120); // New: tempo state
-  const [currentStep, setCurrentStep] = useState(0); // New: current beat indicator
+  const [tempo, setTempo] = useState(120);
+  const [numBeats, setNumBeats] = useState(16); // NEW: number of beats
+  const [currentStep, setCurrentStep] = useState(0);
   // Helper to create a beat object
   const createBeat = (active = false, note = rootNote, octaveVal = octave) => ({
     active,
     note,
     octave: octaveVal,
   });
-  // Helper to create a loop of 16 beats
+  // Helper to create a loop of numBeats beats
   const createLoop = () =>
-    Array(16)
+    Array(numBeats)
       .fill(0)
       .map(() => createBeat());
 
@@ -124,6 +154,7 @@ function Daw() {
   const [effectDrag, setEffectDrag] = useState(null); // For dragging effects
   const synthRefs = useRef({});
   const instrumentsRef = useRef(instruments);
+  const [randomScale, setRandomScale] = useState(null);
 
   useEffect(() => {
     instrumentsRef.current = instruments;
@@ -175,7 +206,7 @@ function Daw() {
           }
         });
         setCurrentStep(step);
-        step = (step + 1) % 16;
+        step = (step + 1) % numBeats; // Use numBeats here
       }, "4n").start(0);
       Tone.Transport.scheduleRepeat(() => {}, "1m");
     }
@@ -334,7 +365,21 @@ function Daw() {
   // Helper to get a random int in [min, max]
   const randomInt = (min, max) =>
     Math.floor(Math.random() * (max - min + 1)) + min;
-  // Helper to randomize effect params
+  // Helper to get major scale notes for a root
+  const getMajorScale = (root) => {
+    // Major scale intervals: W W H W W W H (in semitones)
+    const intervals = [2, 2, 1, 2, 2, 2, 1];
+    const rootIdx = NOTE_OPTIONS.indexOf(root);
+    let scale = [root];
+    let idx = rootIdx;
+    for (let i = 0; i < 6; i++) {
+      idx = (idx + intervals[i]) % 12;
+      scale.push(NOTE_OPTIONS[idx]);
+    }
+    return scale;
+  };
+
+  // Helper to randomize effect params (move above randomize)
   const randomizeParams = (type) => {
     const defaults = EFFECT_PARAM_DEFAULTS[type];
     const params = {};
@@ -367,23 +412,55 @@ function Daw() {
     });
     return params;
   };
-  // Randomizer function
+
+  // Randomizer function (melodic, scale-based, random scale)
   const randomize = () => {
     const used = new Set();
     const newInstruments = [];
+    const scaleName = randomFrom(SCALE_NAMES);
+    setRandomScale(scaleName);
+    const scaleNotes = getScaleNotes(rootNote, scaleName);
     while (newInstruments.length < 4) {
       let name = randomFrom(INSTRUMENT_OPTIONS);
-      // Avoid duplicates
       if (used.has(name)) continue;
       used.add(name);
-      // Randomize loop
-      const loop = Array(16)
+      // Melodic loop: favor repeated/stepwise notes
+      let prevIdx = randomInt(0, scaleNotes.length - 1);
+      let prevOct = randomInt(2, 5);
+      const loop = Array(numBeats)
         .fill(0)
-        .map(() => ({
-          active: Math.random() < 0.5,
-          note: randomFrom(NOTE_OPTIONS),
-          octave: randomInt(2, 5),
-        }));
+        .map(() => {
+          // 70% chance repeat, 20% stepwise, 10% random
+          let idx, octave;
+          const r = Math.random();
+          if (r < 0.7) {
+            idx = prevIdx;
+            octave = prevOct;
+          } else if (r < 0.9) {
+            // Stepwise: move up/down 1 in scale
+            const dir = Math.random() < 0.5 ? -1 : 1;
+            idx = (prevIdx + dir + scaleNotes.length) % scaleNotes.length;
+            // Occasionally change octave if at edge
+            if (
+              (dir === 1 && idx === 0) ||
+              (dir === -1 && idx === scaleNotes.length - 1)
+            ) {
+              octave = Math.max(2, Math.min(5, prevOct + dir));
+            } else {
+              octave = prevOct;
+            }
+          } else {
+            idx = randomInt(0, scaleNotes.length - 1);
+            octave = randomInt(2, 5);
+          }
+          prevIdx = idx;
+          prevOct = octave;
+          return {
+            active: Math.random() < 0.5,
+            note: scaleNotes[idx],
+            octave,
+          };
+        });
       // Randomize effects (1 or 2)
       const numEffects = randomInt(1, 2);
       const effectTypes = [];
@@ -458,6 +535,27 @@ function Daw() {
             style={{ width: 48, marginLeft: 4 }}
           />
           <span style={{ marginLeft: 4 }}>BPM</span>
+        </label>
+        {/* New: Beats control */}
+        <label style={{ marginLeft: 16 }}>
+          Beats:
+          <input
+            type="range"
+            min={4}
+            max={32}
+            step={1}
+            value={numBeats}
+            onChange={(e) => setNumBeats(Number(e.target.value))}
+            style={{ margin: "0 8px", verticalAlign: "middle" }}
+          />
+          <input
+            type="number"
+            min={4}
+            max={32}
+            value={numBeats}
+            onChange={(e) => setNumBeats(Number(e.target.value))}
+            style={{ width: 40, marginLeft: 4 }}
+          />
         </label>
       </div>
       {/* Instrument Palette */}
@@ -736,6 +834,11 @@ function Daw() {
       </div>
       <div style={{ marginTop: 10 }}>
         <b>Instruments:</b> {instruments.map((i) => i.name).join(", ")}
+        {randomScale && (
+          <span style={{ marginLeft: 16, color: "#1976d2", fontWeight: 500 }}>
+            Scale: {rootNote} {randomScale}
+          </span>
+        )}
       </div>
       <button
         onClick={randomize}
