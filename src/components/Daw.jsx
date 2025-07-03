@@ -1,7 +1,10 @@
 import React, { useState, useEffect, useRef } from "react";
 import * as Tone from "tone";
+import DawControls from "./daw/DawControls";
 import TransportControls from "./TransportControls";
-import LoopGrid from "./LoopGrid";
+import InstrumentPalette from "./daw/InstrumentPalette";
+import EffectPalette from "./daw/EffectPalette";
+import InstrumentTracks from "./daw/InstrumentTracks";
 
 const INSTRUMENT_OPTIONS = [
   "Synth",
@@ -168,7 +171,12 @@ function Daw() {
   useEffect(() => {
     let toneLoop;
     if (isPlaying) {
-      // Always recreate synths and effect chains on play
+      // Cancel all scheduled events and flush the transport before starting a new loop
+      if (Tone.Transport.state !== "stopped") {
+        Tone.Transport.stop();
+      }
+      Tone.Transport.cancel();
+      // Always dispose synths and effect chains before creating new ones
       Object.keys(synthRefs.current).forEach((key) => {
         if (synthRefs.current[key]?.dispose) synthRefs.current[key].dispose();
         delete synthRefs.current[key];
@@ -177,6 +185,18 @@ function Daw() {
         const createSynth =
           INSTRUMENT_SYNTHS[inst.name] || INSTRUMENT_SYNTHS["Synth"];
         let synth = createSynth();
+        // If this is a Sampler, do not assign to synth.loaded (read-only)
+        if (
+          (inst.name === "Piano" || inst.name === "Guitar") &&
+          synth.toDestination
+        ) {
+          // Optionally, you can listen for the 'load' event, but do not assign to synth.loaded
+          synth.on &&
+            synth.on("load", () => {
+              // You may trigger UI updates here if needed
+            });
+        }
+        // Connect effects if any
         if (inst.effects && inst.effects.length > 0) {
           let effectNodes = inst.effects.map((fx) =>
             EFFECT_CREATORS[fx.type](fx.params)
@@ -198,27 +218,35 @@ function Daw() {
           const beat = inst.loop[step];
           if (beat && beat.active) {
             const note = `${beat.note}${beat.octave}`;
-            synthRefs.current[inst.name]?.triggerAttackRelease(
-              note,
-              "8n",
-              time
-            );
+            const synth = synthRefs.current[inst.name];
+            // Only trigger Sampler if loaded
+            if (
+              (inst.name === "Piano" || inst.name === "Guitar") &&
+              synth &&
+              !synth.loaded
+            ) {
+              // Optionally: show a loading indicator in the UI
+              return;
+            }
+            synth?.triggerAttackRelease?.(note, "8n", time);
           }
         });
         setCurrentStep(step);
-        step = (step + 1) % numBeats; // Use numBeats here
+        step = (step + 1) % numBeats;
       }, "4n").start(0);
       Tone.Transport.scheduleRepeat(() => {}, "1m");
+      Tone.Transport.start();
     }
     return () => {
       if (toneLoop) toneLoop.dispose();
+      Tone.Transport.cancel();
       // Dispose and clear all synth and effect nodes
       Object.keys(synthRefs.current).forEach((key) => {
         if (synthRefs.current[key]?.dispose) synthRefs.current[key].dispose();
         delete synthRefs.current[key];
       });
     };
-  }, [isPlaying, instruments]);
+  }, [isPlaying, instruments, numBeats]);
 
   const toggleBeat = (instIdx, beatIdx) => {
     setInstruments((prev) =>
@@ -479,386 +507,58 @@ function Daw() {
 
   return (
     <div>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-          marginBottom: 8,
-        }}
-      >
-        <label>
-          Key:
-          <select
-            value={rootNote}
-            onChange={(e) => setRootNote(e.target.value)}
-            style={{ marginLeft: 4 }}
-          >
-            {NOTE_OPTIONS.map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Octave:
-          <select
-            value={octave}
-            onChange={(e) => setOctave(Number(e.target.value))}
-            style={{ marginLeft: 4 }}
-          >
-            {[1, 2, 3, 4, 5, 6].map((o) => (
-              <option key={o} value={o}>
-                {o}
-              </option>
-            ))}
-          </select>
-        </label>
-        {/* Tempo control */}
-        <label style={{ marginLeft: 16 }}>
-          Tempo:
-          <input
-            type="range"
-            min={60}
-            max={200}
-            value={tempo}
-            onChange={(e) => setTempo(Number(e.target.value))}
-            style={{ margin: "0 8px", verticalAlign: "middle" }}
-          />
-          <input
-            type="number"
-            min={60}
-            max={200}
-            value={tempo}
-            onChange={(e) => setTempo(Number(e.target.value))}
-            style={{ width: 48, marginLeft: 4 }}
-          />
-          <span style={{ marginLeft: 4 }}>BPM</span>
-        </label>
-        {/* New: Beats control */}
-        <label style={{ marginLeft: 16 }}>
-          Beats:
-          <input
-            type="range"
-            min={4}
-            max={32}
-            step={1}
-            value={numBeats}
-            onChange={(e) => setNumBeats(Number(e.target.value))}
-            style={{ margin: "0 8px", verticalAlign: "middle" }}
-          />
-          <input
-            type="number"
-            min={4}
-            max={32}
-            value={numBeats}
-            onChange={(e) => setNumBeats(Number(e.target.value))}
-            style={{ width: 40, marginLeft: 4 }}
-          />
-        </label>
-      </div>
-      {/* Instrument Palette */}
-      <div
-        style={{
-          display: "flex",
-          gap: 10,
-          marginBottom: 16,
-          flexWrap: "wrap",
-        }}
-      >
-        {INSTRUMENT_OPTIONS.map((name) => (
-          <div
-            key={name}
-            draggable
-            onDragStart={() => handlePaletteDragStart(name)}
-            onDragEnd={handlePaletteDragEnd}
-            style={{
-              padding: "8px 14px",
-              border: "1px solid #aaa",
-              borderRadius: 6,
-              background: paletteDrag === name ? "#e0e0e0" : "#fafafa",
-              cursor: "grab",
-              fontWeight: 500,
-              boxShadow: paletteDrag === name ? "0 0 8px #888" : undefined,
-              opacity: paletteDrag === name ? 0.6 : 1,
-              userSelect: "none",
-            }}
-          >
-            {name}
-          </div>
-        ))}
-      </div>
-      {/* Effects Palette */}
-      <div
-        style={{
-          display: "flex",
-          gap: 10,
-          marginBottom: 16,
-          flexWrap: "wrap",
-        }}
-      >
-        <span style={{ fontWeight: 500, marginRight: 8 }}>Effects:</span>
-        {EFFECT_OPTIONS.map((name) => (
-          <div
-            key={name}
-            draggable
-            onDragStart={() => handleEffectDragStart(name)}
-            onDragEnd={handleEffectDragEnd}
-            style={{
-              padding: "8px 14px",
-              border: "1px solid #aaa",
-              borderRadius: 6,
-              background: effectDrag === name ? "#e0e0e0" : "#f0faff",
-              cursor: "grab",
-              fontWeight: 500,
-              boxShadow: effectDrag === name ? "0 0 8px #888" : undefined,
-              opacity: effectDrag === name ? 0.6 : 1,
-              userSelect: "none",
-            }}
-          >
-            {name}
-          </div>
-        ))}
-      </div>
+      <DawControls
+        rootNote={rootNote}
+        setRootNote={setRootNote}
+        octave={octave}
+        setOctave={setOctave}
+        tempo={tempo}
+        setTempo={setTempo}
+        numBeats={numBeats}
+        setNumBeats={setNumBeats}
+        randomScale={randomScale ? `${rootNote} ${randomScale}` : null}
+        onRandomize={randomize}
+        scaleNames={SCALE_NAMES}
+        showScale={!!randomScale}
+      />
+      <InstrumentPalette
+        instrumentOptions={INSTRUMENT_OPTIONS}
+        paletteDrag={paletteDrag}
+        handlePaletteDragStart={handlePaletteDragStart}
+        handlePaletteDragEnd={handlePaletteDragEnd}
+      />
+      <EffectPalette
+        effectOptions={EFFECT_OPTIONS}
+        effectDrag={effectDrag}
+        handleEffectDragStart={handleEffectDragStart}
+        handleEffectDragEnd={handleEffectDragEnd}
+      />
       <TransportControls
         isPlaying={isPlaying}
         startTransport={startTransport}
         stopTransport={stopTransport}
       />
-      {/* Loop area as drop zone */}
-      <div
-        style={{
-          display: "flex",
-          gap: 24,
-          marginTop: 16,
-          minHeight: 180,
-          border: "2px dashed #bbb",
-          borderRadius: 8,
-          alignItems: "flex-start",
-        }}
-        onDrop={handleLoopDrop}
-        onDragOver={handleLoopDragOver}
-      >
-        {instruments.map((inst, idx) => (
-          <div
-            key={idx}
-            // Remove draggable and drag handlers from the container
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              opacity: draggedIdx === idx ? 0.5 : 1,
-              border: draggedIdx === idx ? "2px dashed #888" : "none",
-              background: "#fff",
-              borderRadius: 6,
-              minWidth: 90,
-              minHeight: 120,
-              margin: 2,
-              position: "relative",
-            }}
-            onDragOver={handleDragOver}
-            onDrop={(e) => {
-              if (effectDrag) handleEffectDrop(idx, e);
-              else handleDrop(idx);
-            }}
-          >
-            {/* Drag handle for reordering */}
-            <div
-              draggable
-              onDragStart={() => handleDragStart(idx)}
-              onDragEnd={() => setDraggedIdx(null)}
-              style={{
-                width: "100%",
-                cursor: "grab",
-                background: draggedIdx === idx ? "#e0e0e0" : "#f5f5f5",
-                borderRadius: "6px 6px 0 0",
-                padding: "4px 0",
-                textAlign: "center",
-                fontWeight: 600,
-                letterSpacing: 1,
-                userSelect: "none",
-                borderBottom: "1px solid #ddd",
-              }}
-              title="Drag to reorder instrument"
-            >
-              ≡ {inst.name}
-            </div>
-            <LoopGrid
-              loop={inst.loop}
-              toggleBeat={(beatIdx) => toggleBeat(idx, beatIdx)}
-              setBeatNote={(beatIdx, note) => setBeatNote(idx, beatIdx, note)}
-              setBeatOctave={(beatIdx, octaveVal) =>
-                setBeatOctave(idx, beatIdx, octaveVal)
-              }
-              label={null}
-              currentStep={currentStep}
-            />
-            {/* Show applied effects and controls */}
-            {inst.effects && inst.effects.length > 0 && (
-              <div
-                style={{
-                  fontSize: 11,
-                  marginTop: 4,
-                  color: "#1976d2",
-                  width: "100%",
-                  position: "relative",
-                  zIndex: 10,
-                }}
-                draggable={false}
-                onDragStart={(e) => e.stopPropagation()}
-              >
-                Effects:
-                {inst.effects.map((fx, fxIdx) => (
-                  <div
-                    key={fxIdx}
-                    style={{
-                      margin: "6px 0",
-                      background: "#e3f2fd",
-                      borderRadius: 4,
-                      padding: 6,
-                    }}
-                  >
-                    <b>{fx.type}</b>
-                    {Object.entries(fx.params).map(([param, val]) => (
-                      <div
-                        key={param}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 4,
-                          marginTop: 2,
-                        }}
-                      >
-                        <label style={{ fontSize: 10, minWidth: 60 }}>
-                          {param}:
-                        </label>
-                        <input
-                          type="range"
-                          min={param === "wet" ? 0 : 0.01}
-                          max={
-                            param === "wet"
-                              ? 1
-                              : param === "decay"
-                              ? 10
-                              : param === "delayTime"
-                              ? 1
-                              : param === "feedback"
-                              ? 0.95
-                              : param === "distortion"
-                              ? 1
-                              : param === "depth"
-                              ? 1
-                              : param === "frequency"
-                              ? 20
-                              : param === "baseFrequency"
-                              ? 5000
-                              : 10
-                          }
-                          step={0.01}
-                          value={val}
-                          onChange={(e) =>
-                            updateEffectParam(
-                              idx,
-                              fxIdx,
-                              param,
-                              parseFloat(e.target.value)
-                            )
-                          }
-                          style={{ flex: 1 }}
-                          draggable={false}
-                          onDragStart={(e) => e.stopPropagation()}
-                        />
-                        <input
-                          type="number"
-                          min={param === "wet" ? 0 : 0.01}
-                          max={
-                            param === "wet"
-                              ? 1
-                              : param === "decay"
-                              ? 10
-                              : param === "delayTime"
-                              ? 1
-                              : param === "feedback"
-                              ? 0.95
-                              : param === "distortion"
-                              ? 1
-                              : param === "depth"
-                              ? 1
-                              : param === "frequency"
-                              ? 20
-                              : param === "baseFrequency"
-                              ? 5000
-                              : 10
-                          }
-                          step={0.01}
-                          value={val}
-                          onChange={(e) =>
-                            updateEffectParam(
-                              idx,
-                              fxIdx,
-                              param,
-                              parseFloat(e.target.value)
-                            )
-                          }
-                          style={{ width: 48 }}
-                          draggable={false}
-                          onDragStart={(e) => e.stopPropagation()}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            )}
-            <button
-              style={{ marginTop: 8 }}
-              onClick={() => removeInstrument(idx)}
-            >
-              Remove
-            </button>
-          </div>
-        ))}
-        {instruments.length === 0 && (
-          <div
-            style={{
-              color: "#888",
-              margin: 32,
-              textAlign: "center",
-              width: "100%",
-            }}
-          >
-            Drag an instrument here to add it to the loop
-          </div>
-        )}
-      </div>
+      <InstrumentTracks
+        instruments={instruments}
+        draggedIdx={draggedIdx}
+        handleDragStart={handleDragStart}
+        setDraggedIdx={setDraggedIdx}
+        handleDragOver={handleDragOver}
+        handleDrop={handleDrop}
+        handleEffectDrop={handleEffectDrop}
+        effectDrag={effectDrag}
+        updateEffectParam={updateEffectParam}
+        removeInstrument={removeInstrument}
+        toggleBeat={toggleBeat}
+        setBeatNote={setBeatNote}
+        setBeatOctave={setBeatOctave}
+        currentStep={currentStep}
+        handleLoopDrop={handleLoopDrop}
+        handleLoopDragOver={handleLoopDragOver}
+      />
       <div style={{ marginTop: 10 }}>
         <b>Instruments:</b> {instruments.map((i) => i.name).join(", ")}
-        {randomScale && (
-          <span style={{ marginLeft: 16, color: "#1976d2", fontWeight: 500 }}>
-            Scale: {rootNote} {randomScale}
-          </span>
-        )}
       </div>
-      <button
-        onClick={randomize}
-        style={{
-          marginTop: 16,
-          padding: "10px 20px",
-          fontSize: 16,
-          fontWeight: 600,
-          color: "#fff",
-          backgroundColor: "#1976d2",
-          border: "none",
-          borderRadius: 4,
-          cursor: "pointer",
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-        }}
-      >
-        <span>Random</span>
-      </button>
     </div>
   );
 }
