@@ -46,7 +46,13 @@ const LoopGrid = ({
             <div
               className={`beat ${beat.active ? "active" : ""}`}
               onClick={() => toggleBeat(index)}
-              style={{ cursor: "pointer", minWidth: 24, textAlign: "center" }}
+              style={{
+                cursor: "pointer",
+                minWidth: 24,
+                height: "25",
+                textAlign: "center",
+                background: `${beat.active ? "green" : "black"}`,
+              }}
             >
               {beat.active ? "●" : "○"}
             </div>

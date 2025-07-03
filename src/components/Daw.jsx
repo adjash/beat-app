@@ -1,508 +1,170 @@
-import React, { useState, useEffect, useRef } from "react";
-import * as Tone from "tone";
+import React, { useState } from "react";
 import DawControls from "./daw/DawControls";
-import TransportControls from "./TransportControls";
 import InstrumentPalette from "./daw/InstrumentPalette";
 import EffectPalette from "./daw/EffectPalette";
+import TransportControls from "../components/TransportControls";
 import InstrumentTracks from "./daw/InstrumentTracks";
-
-const INSTRUMENT_OPTIONS = [
-  "Synth",
-  "AMSynth",
-  "FMSynth",
-  "DuoSynth",
-  "MonoSynth",
-  "MembraneSynth",
-  "MetalSynth",
-  "PluckSynth",
-  "PolySynth",
-  "PolyFMSynth",
-  "PolyAMSynth",
-  "Drum",
-  "Bass",
-  "Piano",
-  "Guitar",
-];
-
-const INSTRUMENT_SYNTHS = {
-  Synth: () => new Tone.Synth().toDestination(),
-  AMSynth: () => new Tone.AMSynth().toDestination(),
-  FMSynth: () => new Tone.FMSynth().toDestination(),
-  DuoSynth: () => new Tone.DuoSynth().toDestination(),
-  MonoSynth: () => new Tone.MonoSynth().toDestination(),
-  MembraneSynth: () => new Tone.MembraneSynth().toDestination(),
-  MetalSynth: () => new Tone.MetalSynth().toDestination(),
-  PluckSynth: () => new Tone.PluckSynth().toDestination(),
-  PolySynth: () => new Tone.PolySynth(Tone.Synth).toDestination(),
-  PolyFMSynth: () => new Tone.PolySynth(Tone.FMSynth).toDestination(),
-  PolyAMSynth: () => new Tone.PolySynth(Tone.AMSynth).toDestination(),
-  Drum: () => new Tone.MembraneSynth().toDestination(),
-  Bass: () => new Tone.MonoSynth().toDestination(),
-  Piano: () =>
-    new Tone.Sampler({
-      urls: { C4: "C4.mp3" },
-      baseUrl: "https://tonejs.github.io/audio/salamander/",
-    }).toDestination(),
-  Guitar: () =>
-    new Tone.Sampler({
-      urls: { C4: "C4.mp3" },
-      baseUrl:
-        "https://gleitz.github.io/midi-js-soundfonts/FluidR3_GM/acoustic_guitar_nylon-mp3/",
-    }).toDestination(),
-};
-
-const NOTE_OPTIONS = [
-  "C",
-  "C#",
-  "D",
-  "D#",
-  "E",
-  "F",
-  "F#",
-  "G",
-  "G#",
-  "A",
-  "A#",
-  "B",
-];
-
-const EFFECT_OPTIONS = [
-  "Reverb",
-  "Delay",
-  "Distortion",
-  "Chorus",
-  "Phaser",
-  "Tremolo",
-];
-
-// Effect parameter defaults
-const EFFECT_PARAM_DEFAULTS = {
-  Reverb: { decay: 2, wet: 0.4 },
-  Delay: { delayTime: 0.25, feedback: 0.4, wet: 0.4 },
-  Distortion: { distortion: 0.4 },
-  Chorus: { frequency: 4, delayTime: 2.5, depth: 0.5, wet: 0.5 },
-  Phaser: { frequency: 15, octaves: 3, baseFrequency: 1000, wet: 0.5 },
-  Tremolo: { frequency: 9, depth: 0.75, wet: 0.5 },
-};
-
-const EFFECT_CREATORS = {
-  Reverb: (params) => new Tone.Reverb(params),
-  Delay: (params) => new Tone.FeedbackDelay(params),
-  Distortion: (params) => new Tone.Distortion(params.distortion),
-  Chorus: (params) =>
-    new Tone.Chorus(params.frequency, params.delayTime, params.depth).start(),
-  Phaser: (params) => new Tone.Phaser(params),
-  Tremolo: (params) => new Tone.Tremolo(params.frequency, params.depth).start(),
-};
-
-// Available musical scales and their intervals (in semitones)
-const SCALES = {
-  Major: [2, 2, 1, 2, 2, 2, 1],
-  "Natural Minor": [2, 1, 2, 2, 1, 2, 2],
-  "Harmonic Minor": [2, 1, 2, 2, 1, 3, 1],
-  "Melodic Minor": [2, 1, 2, 2, 2, 2, 1],
-  Dorian: [2, 1, 2, 2, 2, 1, 2],
-  Phrygian: [1, 2, 2, 2, 1, 2, 2],
-  Lydian: [2, 2, 2, 1, 2, 2, 1],
-  Mixolydian: [2, 2, 1, 2, 2, 1, 2],
-  Locrian: [1, 2, 2, 1, 2, 2, 2],
-  "Major Pentatonic": [2, 2, 3, 2, 3],
-  "Minor Pentatonic": [3, 2, 2, 3, 2],
-};
-const SCALE_NAMES = Object.keys(SCALES);
-
-// Helper to get scale notes for a root and scale name
-const getScaleNotes = (root, scaleName) => {
-  const intervals = SCALES[scaleName];
-  const rootIdx = NOTE_OPTIONS.indexOf(root);
-  let scale = [root];
-  let idx = rootIdx;
-  for (let i = 0; i < intervals.length; i++) {
-    idx = (idx + intervals[i]) % 12;
-    scale.push(NOTE_OPTIONS[idx]);
-  }
-  return scale;
-};
+import {
+  INSTRUMENT_OPTIONS,
+  EFFECT_OPTIONS,
+  SCALE_NAMES,
+  createLoop,
+  EFFECT_PARAM_DEFAULTS,
+  randomFrom,
+  randomInt,
+  getScaleNotes,
+} from "../utils/music";
+import {
+  toggleBeat,
+  setBeatNote,
+  setBeatOctave,
+  removeInstrument,
+  updateEffectParam,
+  addEffectToInstrument,
+} from "../utils/dawStateHelpers";
+import {
+  handleDragStart,
+  handleDragOver,
+  handleDrop,
+  handlePaletteDragStart,
+  handlePaletteDragEnd,
+  handleEffectDragStart,
+  handleEffectDragEnd,
+} from "../utils/dragAndDropHelpers";
+import { useToneTransport } from "../utils/useToneTransport";
 
 function Daw() {
   const [rootNote, setRootNote] = useState("C");
   const [octave, setOctave] = useState(4);
   const [tempo, setTempo] = useState(120);
-  const [numBeats, setNumBeats] = useState(16); // NEW: number of beats
+  const [numBeats, setNumBeats] = useState(16);
   const [currentStep, setCurrentStep] = useState(0);
-  // Helper to create a beat object
-  const createBeat = (active = false, note = rootNote, octaveVal = octave) => ({
-    active,
-    note,
-    octave: octaveVal,
-  });
-  // Helper to create a loop of numBeats beats
-  const createLoop = () =>
-    Array(numBeats)
-      .fill(0)
-      .map(() => createBeat());
-
   const [isPlaying, setIsPlaying] = useState(false);
   const [instruments, setInstruments] = useState([
     {
       name: "Synth",
-      loop: Array(16)
-        .fill(0)
-        .map(() => ({ active: false, note: "C", octave: 4 })),
+      loop: createLoop(16, "C", 4),
       effects: [],
     },
   ]);
   const [draggedIdx, setDraggedIdx] = useState(null);
   const [paletteDrag, setPaletteDrag] = useState(null);
-  const [effectDrag, setEffectDrag] = useState(null); // For dragging effects
-  const synthRefs = useRef({});
-  const instrumentsRef = useRef(instruments);
+  const [effectDrag, setEffectDrag] = useState(null);
   const [randomScale, setRandomScale] = useState(null);
 
-  useEffect(() => {
-    instrumentsRef.current = instruments;
-  }, [instruments]);
+  // Tone.js transport/loop management
+  useToneTransport({
+    isPlaying,
+    instruments,
+    numBeats,
+    tempo,
+    setCurrentStep,
+  });
 
-  useEffect(() => {
-    Tone.Transport.bpm.value = tempo;
-  }, [tempo]);
-
-  // Setup Tone.js loop for all instruments
-  useEffect(() => {
-    let toneLoop;
-    if (isPlaying) {
-      // Cancel all scheduled events and flush the transport before starting a new loop
-      if (Tone.Transport.state !== "stopped") {
-        Tone.Transport.stop();
-      }
-      Tone.Transport.cancel();
-      // Always dispose synths and effect chains before creating new ones
-      Object.keys(synthRefs.current).forEach((key) => {
-        if (synthRefs.current[key]?.dispose) synthRefs.current[key].dispose();
-        delete synthRefs.current[key];
-      });
-      instrumentsRef.current.forEach((inst) => {
-        const createSynth =
-          INSTRUMENT_SYNTHS[inst.name] || INSTRUMENT_SYNTHS["Synth"];
-        let synth = createSynth();
-        // If this is a Sampler, do not assign to synth.loaded (read-only)
-        if (
-          (inst.name === "Piano" || inst.name === "Guitar") &&
-          synth.toDestination
-        ) {
-          // Optionally, you can listen for the 'load' event, but do not assign to synth.loaded
-          synth.on &&
-            synth.on("load", () => {
-              // You may trigger UI updates here if needed
-            });
-        }
-        // Connect effects if any
-        if (inst.effects && inst.effects.length > 0) {
-          let effectNodes = inst.effects.map((fx) =>
-            EFFECT_CREATORS[fx.type](fx.params)
-          );
-          effectNodes.reduce((prev, curr) => prev.connect(curr));
-          effectNodes[effectNodes.length - 1].toDestination();
-          synth.disconnect();
-          synth.connect(effectNodes[0]);
-          synthRefs.current[inst.name] = synth;
-          synthRefs.current[`${inst.name}_effects`] = effectNodes;
-        } else {
-          synthRefs.current[inst.name] = synth;
-        }
-      });
-      let step = 0;
-      setCurrentStep(0);
-      toneLoop = new Tone.Loop((time) => {
-        instrumentsRef.current.forEach((inst) => {
-          const beat = inst.loop[step];
-          if (beat && beat.active) {
-            const note = `${beat.note}${beat.octave}`;
-            const synth = synthRefs.current[inst.name];
-            // Only trigger Sampler if loaded
-            if (
-              (inst.name === "Piano" || inst.name === "Guitar") &&
-              synth &&
-              !synth.loaded
-            ) {
-              // Optionally: show a loading indicator in the UI
-              return;
-            }
-            synth?.triggerAttackRelease?.(note, "8n", time);
-          }
-        });
-        setCurrentStep(step);
-        step = (step + 1) % numBeats;
-      }, "4n").start(0);
-      Tone.Transport.scheduleRepeat(() => {}, "1m");
-      Tone.Transport.start();
-    }
-    return () => {
-      if (toneLoop) toneLoop.dispose();
-      Tone.Transport.cancel();
-      // Dispose and clear all synth and effect nodes
-      Object.keys(synthRefs.current).forEach((key) => {
-        if (synthRefs.current[key]?.dispose) synthRefs.current[key].dispose();
-        delete synthRefs.current[key];
-      });
-    };
-  }, [isPlaying, instruments, numBeats]);
-
-  const toggleBeat = (instIdx, beatIdx) => {
-    setInstruments((prev) =>
-      prev.map((inst, i) =>
-        i === instIdx
-          ? {
-              ...inst,
-              loop: inst.loop.map((b, j) =>
-                j === beatIdx ? { ...b, active: !b.active } : b
-              ),
-            }
-          : inst
-      )
-    );
-  };
-  // New: update note/octave for a beat
-  const setBeatNote = (instIdx, beatIdx, note) => {
-    setInstruments((prev) =>
-      prev.map((inst, i) =>
-        i === instIdx
-          ? {
-              ...inst,
-              loop: inst.loop.map((b, j) =>
-                j === beatIdx ? { ...b, note } : b
-              ),
-            }
-          : inst
-      )
-    );
-  };
-  const setBeatOctave = (instIdx, beatIdx, octaveVal) => {
-    setInstruments((prev) =>
-      prev.map((inst, i) =>
-        i === instIdx
-          ? {
-              ...inst,
-              loop: inst.loop.map((b, j) =>
-                j === beatIdx ? { ...b, octave: octaveVal } : b
-              ),
-            }
-          : inst
-      )
-    );
+  // --- Instrument Drag & Drop ---
+  const onDragStart = (idx) => handleDragStart(setDraggedIdx, idx);
+  const onDragOver = handleDragOver;
+  const onDrop = (idx) => {
+    setInstruments((prev) => handleDrop(prev, draggedIdx, idx));
+    setDraggedIdx(null);
   };
 
-  // Drag from palette to add instrument
-  const handlePaletteDragStart = (name) => setPaletteDrag(name);
-  const handlePaletteDragEnd = () => setPaletteDrag(null);
-  const handleLoopDrop = (e) => {
+  // --- Instrument Palette Drag ---
+  const onPaletteDragStart = (name) =>
+    handlePaletteDragStart(setPaletteDrag, name);
+  const onPaletteDragEnd = () => handlePaletteDragEnd(setPaletteDrag);
+  const onLoopDrop = (e) => {
     e.preventDefault();
     if (paletteDrag) {
       setInstruments((prev) => [
         ...prev,
-        { name: paletteDrag, loop: createLoop(), effects: [] }, // Always add effects: []
+        {
+          name: paletteDrag,
+          loop: createLoop(numBeats, rootNote, octave),
+          effects: [],
+        },
       ]);
       setPaletteDrag(null);
     }
   };
-  const handleLoopDragOver = (e) => e.preventDefault();
+  const onLoopDragOver = (e) => e.preventDefault();
 
-  // Drag to reorder
-  const handleDragStart = (idx) => setDraggedIdx(idx);
-  const handleDragOver = (e) => e.preventDefault();
-  const handleDrop = (idx) => {
-    if (draggedIdx === null || draggedIdx === idx) return;
-    setInstruments((prev) => {
-      const updated = [...prev];
-      const [removed] = updated.splice(draggedIdx, 1);
-      updated.splice(idx, 0, removed);
-      return updated;
-    });
-    setDraggedIdx(null);
-  };
-
-  // Drag from effect palette
-  const handleEffectDragStart = (name) => setEffectDrag(name);
-  const handleEffectDragEnd = () => setEffectDrag(null);
-  // Drop effect on instrument
-  const handleEffectDrop = (instIdx, e) => {
+  // --- Effect Palette Drag ---
+  const onEffectDragStart = (name) =>
+    handleEffectDragStart(setEffectDrag, name);
+  const onEffectDragEnd = () => handleEffectDragEnd(setEffectDrag);
+  const onEffectDrop = (instIdx, e) => {
     e.preventDefault();
     if (effectDrag) {
       setInstruments((prev) =>
-        prev.map((inst, i) => {
-          const instEffects = inst.effects || [];
-          // Only add if not already present (by type)
-          if (
-            i === instIdx &&
-            !instEffects.some((fx) => fx.type === effectDrag)
-          ) {
-            return {
-              ...inst,
-              effects: [
-                ...instEffects,
-                {
-                  type: effectDrag,
-                  params: { ...EFFECT_PARAM_DEFAULTS[effectDrag] },
-                },
-              ],
-            };
-          }
-          return inst;
-        })
+        addEffectToInstrument(
+          prev,
+          instIdx,
+          effectDrag,
+          EFFECT_PARAM_DEFAULTS[effectDrag]
+        )
       );
       setEffectDrag(null);
     }
   };
-  const handleEffectDragOver = (e) => e.preventDefault();
 
-  const removeInstrument = (idx) => {
-    setInstruments((prev) => prev.filter((_, i) => i !== idx));
-  };
+  // --- Beat/Note/Octave ---
+  const onToggleBeat = (instIdx, beatIdx) =>
+    setInstruments((prev) => toggleBeat(prev, instIdx, beatIdx));
+  const onSetBeatNote = (instIdx, beatIdx, note) =>
+    setInstruments((prev) => setBeatNote(prev, instIdx, beatIdx, note));
+  const onSetBeatOctave = (instIdx, beatIdx, octaveVal) =>
+    setInstruments((prev) => setBeatOctave(prev, instIdx, beatIdx, octaveVal));
 
-  const startTransport = async () => {
-    await Tone.start();
-    Tone.Transport.start();
-    setIsPlaying(true);
-  };
+  // --- Remove Instrument ---
+  const onRemoveInstrument = (idx) =>
+    setInstruments((prev) => removeInstrument(prev, idx));
 
-  const stopTransport = () => {
-    Tone.Transport.stop();
-    setIsPlaying(false);
-  };
-
-  // Update effect parameter
-  const updateEffectParam = (instIdx, fxIdx, param, value) => {
+  // --- Update Effect Param ---
+  const onUpdateEffectParam = (instIdx, fxIdx, param, value) =>
     setInstruments((prev) =>
-      prev.map((inst, i) =>
-        i === instIdx
-          ? {
-              ...inst,
-              effects: inst.effects.map((fx, j) =>
-                j === fxIdx
-                  ? { ...fx, params: { ...fx.params, [param]: value } }
-                  : fx
-              ),
-            }
-          : inst
-      )
+      updateEffectParam(prev, instIdx, fxIdx, param, value)
     );
-  };
 
-  // Helper to get a random item
-  const randomFrom = (arr) => arr[Math.floor(Math.random() * arr.length)];
-  // Helper to get a random int in [min, max]
-  const randomInt = (min, max) =>
-    Math.floor(Math.random() * (max - min + 1)) + min;
-  // Helper to get major scale notes for a root
-  const getMajorScale = (root) => {
-    // Major scale intervals: W W H W W W H (in semitones)
-    const intervals = [2, 2, 1, 2, 2, 2, 1];
-    const rootIdx = NOTE_OPTIONS.indexOf(root);
-    let scale = [root];
-    let idx = rootIdx;
-    for (let i = 0; i < 6; i++) {
-      idx = (idx + intervals[i]) % 12;
-      scale.push(NOTE_OPTIONS[idx]);
-    }
-    return scale;
-  };
-
-  // Helper to randomize effect params (move above randomize)
-  const randomizeParams = (type) => {
-    const defaults = EFFECT_PARAM_DEFAULTS[type];
-    const params = {};
-    Object.entries(defaults).forEach(([k, v]) => {
-      if (typeof v === "number") {
-        // Use the same min/max as in the UI
-        let min = k === "wet" ? 0 : 0.01;
-        let max =
-          k === "wet"
-            ? 1
-            : k === "decay"
-            ? 10
-            : k === "delayTime"
-            ? 1
-            : k === "feedback"
-            ? 0.95
-            : k === "distortion"
-            ? 1
-            : k === "depth"
-            ? 1
-            : k === "frequency"
-            ? 20
-            : k === "baseFrequency"
-            ? 5000
-            : 10;
-        params[k] = +(Math.random() * (max - min) + min).toFixed(2);
-      } else {
-        params[k] = v;
-      }
-    });
-    return params;
-  };
-
-  // Randomizer function (melodic, scale-based, random scale)
+  // --- Randomize ---
   const randomize = () => {
-    const used = new Set();
-    const newInstruments = [];
+    // Pick a random scale
     const scaleName = randomFrom(SCALE_NAMES);
     setRandomScale(scaleName);
     const scaleNotes = getScaleNotes(rootNote, scaleName);
-    while (newInstruments.length < 4) {
-      let name = randomFrom(INSTRUMENT_OPTIONS);
-      if (used.has(name)) continue;
-      used.add(name);
-      // Melodic loop: favor repeated/stepwise notes
-      let prevIdx = randomInt(0, scaleNotes.length - 1);
-      let prevOct = randomInt(2, 5);
+    // Randomize instruments
+    const numInstruments = randomInt(6, 12);
+    const newInstruments = [];
+    for (let i = 0; i < numInstruments; i++) {
+      const name = randomFrom(INSTRUMENT_OPTIONS);
       const loop = Array(numBeats)
         .fill(0)
-        .map(() => {
-          // 70% chance repeat, 20% stepwise, 10% random
-          let idx, octave;
-          const r = Math.random();
-          if (r < 0.7) {
-            idx = prevIdx;
-            octave = prevOct;
-          } else if (r < 0.9) {
-            // Stepwise: move up/down 1 in scale
-            const dir = Math.random() < 0.5 ? -1 : 1;
-            idx = (prevIdx + dir + scaleNotes.length) % scaleNotes.length;
-            // Occasionally change octave if at edge
-            if (
-              (dir === 1 && idx === 0) ||
-              (dir === -1 && idx === scaleNotes.length - 1)
-            ) {
-              octave = Math.max(2, Math.min(5, prevOct + dir));
-            } else {
-              octave = prevOct;
-            }
-          } else {
-            idx = randomInt(0, scaleNotes.length - 1);
-            octave = randomInt(2, 5);
-          }
-          prevIdx = idx;
-          prevOct = octave;
-          return {
-            active: Math.random() < 0.5,
-            note: scaleNotes[idx],
-            octave,
-          };
-        });
-      // Randomize effects (1 or 2)
-      const numEffects = randomInt(1, 2);
+        .map(() => ({
+          active: Math.random() > 0.6,
+          note: randomFrom(scaleNotes),
+          octave: randomInt(2, 5),
+        }));
+      // Randomize effects
+      const numEffects = randomInt(0, 2);
       const effectTypes = [];
       while (effectTypes.length < numEffects) {
-        let fx = randomFrom(EFFECT_OPTIONS);
+        const fx = randomFrom(EFFECT_OPTIONS);
         if (!effectTypes.includes(fx)) effectTypes.push(fx);
       }
       const effects = effectTypes.map((type) => ({
         type,
-        params: randomizeParams(type),
+        params: { ...EFFECT_PARAM_DEFAULTS[type] },
       }));
       newInstruments.push({ name, loop, effects });
     }
     setInstruments(newInstruments);
+  };
+
+  // --- Transport ---
+  const startTransport = () => setIsPlaying(true);
+  const stopTransport = () => {
+    setIsPlaying(false);
+    setCurrentStep(0);
   };
 
   return (
@@ -524,14 +186,14 @@ function Daw() {
       <InstrumentPalette
         instrumentOptions={INSTRUMENT_OPTIONS}
         paletteDrag={paletteDrag}
-        handlePaletteDragStart={handlePaletteDragStart}
-        handlePaletteDragEnd={handlePaletteDragEnd}
+        handlePaletteDragStart={onPaletteDragStart}
+        handlePaletteDragEnd={onPaletteDragEnd}
       />
       <EffectPalette
         effectOptions={EFFECT_OPTIONS}
         effectDrag={effectDrag}
-        handleEffectDragStart={handleEffectDragStart}
-        handleEffectDragEnd={handleEffectDragEnd}
+        handleEffectDragStart={onEffectDragStart}
+        handleEffectDragEnd={onEffectDragEnd}
       />
       <TransportControls
         isPlaying={isPlaying}
@@ -541,20 +203,20 @@ function Daw() {
       <InstrumentTracks
         instruments={instruments}
         draggedIdx={draggedIdx}
-        handleDragStart={handleDragStart}
+        handleDragStart={onDragStart}
         setDraggedIdx={setDraggedIdx}
-        handleDragOver={handleDragOver}
-        handleDrop={handleDrop}
-        handleEffectDrop={handleEffectDrop}
+        handleDragOver={onDragOver}
+        handleDrop={onDrop}
+        handleEffectDrop={onEffectDrop}
         effectDrag={effectDrag}
-        updateEffectParam={updateEffectParam}
-        removeInstrument={removeInstrument}
-        toggleBeat={toggleBeat}
-        setBeatNote={setBeatNote}
-        setBeatOctave={setBeatOctave}
+        updateEffectParam={onUpdateEffectParam}
+        removeInstrument={onRemoveInstrument}
+        toggleBeat={onToggleBeat}
+        setBeatNote={onSetBeatNote}
+        setBeatOctave={onSetBeatOctave}
         currentStep={currentStep}
-        handleLoopDrop={handleLoopDrop}
-        handleLoopDragOver={handleLoopDragOver}
+        handleLoopDrop={onLoopDrop}
+        handleLoopDragOver={onLoopDragOver}
       />
       <div style={{ marginTop: 10 }}>
         <b>Instruments:</b> {instruments.map((i) => i.name).join(", ")}
