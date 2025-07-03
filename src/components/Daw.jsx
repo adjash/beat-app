@@ -329,6 +329,77 @@ function Daw() {
     );
   };
 
+  // Helper to get a random item
+  const randomFrom = (arr) => arr[Math.floor(Math.random() * arr.length)];
+  // Helper to get a random int in [min, max]
+  const randomInt = (min, max) =>
+    Math.floor(Math.random() * (max - min + 1)) + min;
+  // Helper to randomize effect params
+  const randomizeParams = (type) => {
+    const defaults = EFFECT_PARAM_DEFAULTS[type];
+    const params = {};
+    Object.entries(defaults).forEach(([k, v]) => {
+      if (typeof v === "number") {
+        // Use the same min/max as in the UI
+        let min = k === "wet" ? 0 : 0.01;
+        let max =
+          k === "wet"
+            ? 1
+            : k === "decay"
+            ? 10
+            : k === "delayTime"
+            ? 1
+            : k === "feedback"
+            ? 0.95
+            : k === "distortion"
+            ? 1
+            : k === "depth"
+            ? 1
+            : k === "frequency"
+            ? 20
+            : k === "baseFrequency"
+            ? 5000
+            : 10;
+        params[k] = +(Math.random() * (max - min) + min).toFixed(2);
+      } else {
+        params[k] = v;
+      }
+    });
+    return params;
+  };
+  // Randomizer function
+  const randomize = () => {
+    const used = new Set();
+    const newInstruments = [];
+    while (newInstruments.length < 4) {
+      let name = randomFrom(INSTRUMENT_OPTIONS);
+      // Avoid duplicates
+      if (used.has(name)) continue;
+      used.add(name);
+      // Randomize loop
+      const loop = Array(16)
+        .fill(0)
+        .map(() => ({
+          active: Math.random() < 0.5,
+          note: randomFrom(NOTE_OPTIONS),
+          octave: randomInt(2, 5),
+        }));
+      // Randomize effects (1 or 2)
+      const numEffects = randomInt(1, 2);
+      const effectTypes = [];
+      while (effectTypes.length < numEffects) {
+        let fx = randomFrom(EFFECT_OPTIONS);
+        if (!effectTypes.includes(fx)) effectTypes.push(fx);
+      }
+      const effects = effectTypes.map((type) => ({
+        type,
+        params: randomizeParams(type),
+      }));
+      newInstruments.push({ name, loop, effects });
+    }
+    setInstruments(newInstruments);
+  };
+
   return (
     <div>
       <div
@@ -666,6 +737,25 @@ function Daw() {
       <div style={{ marginTop: 10 }}>
         <b>Instruments:</b> {instruments.map((i) => i.name).join(", ")}
       </div>
+      <button
+        onClick={randomize}
+        style={{
+          marginTop: 16,
+          padding: "10px 20px",
+          fontSize: 16,
+          fontWeight: 600,
+          color: "#fff",
+          backgroundColor: "#1976d2",
+          border: "none",
+          borderRadius: 4,
+          cursor: "pointer",
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+        }}
+      >
+        <span>Random</span>
+      </button>
     </div>
   );
 }
