@@ -12,6 +12,8 @@ function DawControls({
   randomScale,
   onRandomize,
   scaleNames,
+  scaleType,
+  setScaleType,
   showScale,
 }) {
   return (
@@ -46,6 +48,20 @@ function DawControls({
           ].map((n) => (
             <option key={n} value={n}>
               {n}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        Scale:
+        <select
+          value={scaleType}
+          onChange={(e) => setScaleType(e.target.value)}
+          style={{ marginLeft: 4 }}
+        >
+          {scaleNames.map((name) => (
+            <option key={name} value={name}>
+              {name}
             </option>
           ))}
         </select>

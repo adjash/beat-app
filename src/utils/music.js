@@ -119,6 +119,33 @@ export function getScaleNotes(root, scaleName) {
   return scale;
 }
 
+// Common chord progressions (scale degrees)
+export const COMMON_PROGRESSIONS = [
+  { name: "I–V–vi–IV", degrees: [1, 5, 6, 4], scale: "Major" },
+  { name: "ii–V–I", degrees: [2, 5, 1], scale: "Major" },
+  { name: "I–IV–V–I", degrees: [1, 4, 5, 1], scale: "Major" },
+  { name: "vi–IV–I–V", degrees: [6, 4, 1, 5], scale: "Major" },
+  { name: "I–vi–ii–V", degrees: [1, 6, 2, 5], scale: "Major" },
+  { name: "I–IV–I–V", degrees: [1, 4, 1, 5], scale: "Major" },
+  { name: "I–iii–IV–V", degrees: [1, 3, 4, 5], scale: "Major" },
+  { name: "I–V–IV–V", degrees: [1, 5, 4, 5], scale: "Major" },
+];
+
+// Map scale degree to note in a scale
+export function degreeToNote(scaleNotes, degree) {
+  // degree: 1-based (1 = tonic/root)
+  return scaleNotes[(degree - 1) % scaleNotes.length];
+}
+
+// Build a triad chord from scale degree
+export function degreeToChord(scaleNotes, degree) {
+  // Simple triad: root, third, fifth
+  const rootIdx = (degree - 1) % scaleNotes.length;
+  const thirdIdx = (rootIdx + 2) % scaleNotes.length;
+  const fifthIdx = (rootIdx + 4) % scaleNotes.length;
+  return [scaleNotes[rootIdx], scaleNotes[thirdIdx], scaleNotes[fifthIdx]];
+}
+
 // Beat/loop helpers
 export function createBeat(active = false, note = "C", octaveVal = 4) {
   return { active, note, octave: octaveVal };
